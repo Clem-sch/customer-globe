@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Customer Globe</title>
+
+<style>
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  font-family: system-ui, Arial, sans-serif;
+}
+
+#wrap {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+#globe {
+  width: 100%;
+  height: 100%;
+}
+
+#tip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(0,0,0,.8);
+  color: #fff;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  display: none;
+  white-space: nowrap;
+  transform: translate(10px,10px);
+}
+</style>
+</head>
+
+<body>
+<div id="wrap">
+  <div id="globe"></div>
+  <div id="tip"></div>
+</div>
+
+<script type="module">
+import Globe from "https://esm.sh/globe.gl@2";
+import * as THREE from "https://esm.sh/three@0.160.0";
+import { mesh } from "https://esm.sh/topojson-client@3";
+
+
+// =========================
+// TOGGLES
+// =========================
+const MAP_MODE = "coast";     // "grid" | "coast"
+
+const SHOW_CUSTOMER_POINTS = false;
+const SHOW_CUSTOMER_RINGS  = false;
+const SHOW_COUNTRY_FILL    = true;   // polygons
+
+const HOVER_ONLY_ACTIVE = true;
+
+
+// =========================
+// FILES
+// =========================
+const CUSTOMERS_JSON = "../data/points.json";
+const LAND_GRID_JSON = "../data/land_rings.json";
+
+const COUNTRIES_TOPO = "./countries-110m.json";
+const LAND_TOPO      = "./land-110m.json";
+const COUNTRIES_GEO  = "./countries_iso110.geojson";
+
+
+// =========================
+// STYLING
+// =========================
+const OCEAN_COLOR = "#eef2f7";
+
+const COUNTRY_COLOR = "rgba(20,20,20,0.06)";
+const ACTIVE_COLOR  = "rgba(20,20,20,0.22)";
+const HOVER_COLOR   = "rgba(0,0,0,0.35)";
+
+const LINE_COLOR = "rgba(0,0,0,1)";
+const LINE_WIDTH = 1;
+
+const LAND_POINT_ALT = 0.0015;
+const LAND_POINT_RADIUS = 0.40;
+
+const CUSTOMER_POINT_ALT = 0.03;
+const CUSTOMER_POINT_RADIUS = 0.55;
+const RING_ALT = 0.025;
+
+
+// =========================
+// HELPERS
+// =========================
+async function fetchJson(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`Fetch failed ${url}`);
+  return await r.json();
+}
+
+const root = document.getElementById("globe");
+const tip  = document.getElementById("tip");
+
+function showTip(text, x, y) {
+  tip.textContent = text;
+  tip.style.left = x + "px";
+  tip.style.top  = y + "px";
+  tip.style.display = "block";
+}
+
+function hideTip() {
+  tip.style.display = "none";
+}
+
+
+// =========================
+// INIT GLOBE
+// =========================
+const globe = Globe()(root);
+globe.backgroundColor("rgba(0,0,0,0)");
+
+const mat = globe.globeMaterial();
+mat.color = new THREE.Color(OCEAN_COLOR);
+mat.emissive = new THREE.Color("#ffffff");
+mat.emissiveIntensity = 0.06;
+// NICHT DoubleSide/transparent hier
+mat.transparent = true;
+mat.opacity = 0.9;
+mat.side = THREE.FrontSide;
+mat.depthWrite = true;
+
+const scene = globe.scene();
+scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+const key = new THREE.DirectionalLight(0xffffff, 1.0);
+key.position.set(2,1,1);
+scene.add(key);
+
+globe.atmosphereColor("#c7d6ff");
+globe.atmosphereAltitude(0.06);
+
+globe.controls().autoRotate = false;
+globe.controls().autoRotateSpeed = 0.6;
+
+
+
+
+// =========================
+// LOAD DATA
+// =========================
+const customers = await fetchJson(CUSTOMERS_JSON);
+const activeIso = new Set(customers.map(d => d.iso3).filter(Boolean));
+
+const activeNames = new Set(
+  customers.map(d => (d.name ?? "").trim()).filter(Boolean)
+);
+
+
+
+const custLat = d => MAP_MODE === "grid" ? d.lat : (d.raw_lat ?? d.lat);
+const custLng = d => MAP_MODE === "grid" ? d.lng : (d.raw_lng ?? d.lng);
+
+
+// =========================
+// GRID MODE
+// =========================
+if (MAP_MODE === "grid") {
+  const land = await fetchJson(LAND_GRID_JSON);
+
+  const landPts = land.map(d => ({...d, t:"land"}));
+  const custPts = SHOW_CUSTOMER_POINTS ? customers.map(d => ({...d, t:"cust"})) : [];
+
+  globe.pointsData(landPts.concat(custPts));
+  globe.pointLat(d => d.t==="cust" ? custLat(d) : d.lat);
+  globe.pointLng(d => d.t==="cust" ? custLng(d) : d.lng);
+  globe.pointAltitude(d => d.t==="cust" ? CUSTOMER_POINT_ALT : LAND_POINT_ALT);
+  globe.pointRadius(d => d.t==="cust" ? CUSTOMER_POINT_RADIUS : LAND_POINT_RADIUS);
+  globe.pointColor(d => d.t==="cust" ? d.color : "#111");
+
+  if (SHOW_CUSTOMER_RINGS) {
+    globe.ringsData(customers);
+    globe.ringLat(custLat);
+    globe.ringLng(custLng);
+    globe.ringAltitude(RING_ALT);
+    globe.ringColor(d => [d.color, "rgba(0,0,0,0)"]);
+    globe.ringMaxRadius(() => 2.8);
+    globe.ringPropagationSpeed(0.8);
+    globe.ringRepeatPeriod(2200);
+  }
+
+} else {
+
+
+// =========================
+// COAST MODE
+// =========================
+
+// Customer points
+if (SHOW_CUSTOMER_POINTS) {
+  globe.pointsData(customers);
+  globe.pointLat(custLat);
+  globe.pointLng(custLng);
+  globe.pointAltitude(() => CUSTOMER_POINT_ALT);
+  globe.pointRadius(() => CUSTOMER_POINT_RADIUS);
+  globe.pointColor(d => d.color);
+}
+
+// Rings
+if (SHOW_CUSTOMER_RINGS) {
+  globe.ringsData(customers);
+  globe.ringLat(custLat);
+  globe.ringLng(custLng);
+  globe.ringAltitude(RING_ALT);
+  globe.ringColor(d => [d.color, "rgba(0,0,0,0)"]);
+  globe.ringMaxRadius(() => 2.8);
+  globe.ringPropagationSpeed(0.8);
+  globe.ringRepeatPeriod(2200);
+}
+
+
+// =========================
+// COUNTRY POLYGONS
+// =========================
+let countryMeshes = [];
+
+if (SHOW_COUNTRY_FILL) {
+  const geo = await fetchJson(COUNTRIES_GEO);
+
+  globe.polygonsData(geo.features);
+  globe.polygonLabel(f => {
+    const iso  = (f?.properties?.ISO_A3 ?? "").trim().toUpperCase();
+    const name = (f?.properties?.ADMIN ?? f?.properties?.NAME ?? "").trim();
+
+    const isActive =
+      (iso && iso !== "-99" && activeIso.has(iso)) ||
+      (name && activeNames.has(name));
+  
+    if (!isActive && HOVER_ONLY_ACTIVE) return null;
+
+    return name;
+  });
+
+
+  globe.polygonAltitude(0.003);
+
+  globe.polygonCapColor(f => {
+    const iso  = (f?.properties?.ISO_A3 ?? "").trim().toUpperCase();
+    const name = (f?.properties?.ADMIN ?? f?.properties?.NAME ?? "").trim();
+
+    const isActive =
+      (iso && iso !== "-99" && activeIso.has(iso)) ||
+      (name && activeNames.has(name));
+
+    return isActive ? ACTIVE_COLOR : COUNTRY_COLOR;
+  });
+
+
+  globe.polygonSideColor(() => "rgba(0,0,0,0)");
+  globe.polygonStrokeColor(() => "rgba(0,0,0,0)");
+
+  // grab polygon meshes after render tick
+  setTimeout(() => {
+    countryMeshes = [];
+    globe.scene().traverse(o => {
+      if (!o.isMesh) return;
+
+      // globe.gl hängt Feature-Daten oft unter userData.__data
+      const ud = o.userData || {};
+      const feat = ud.__data || ud.data || ud.feature || null;
+      const props = feat?.properties;
+
+      // Nur Meshes, die wirklich Länder-Properties haben
+      if (props && (props.ISO_A3 || props.ADMIN || props.NAME)) {
+        countryMeshes.push(o);
+      }
+    });
+
+    console.log("Country polygon meshes:", countryMeshes.length);
+  }, 600);
+}
+
+
+// =========================
+// COAST + BORDERS
+// =========================
+let lines = [];
+
+const landTopo = await fetchJson(LAND_TOPO);
+const coastObj = landTopo.objects.land || Object.values(landTopo.objects)[0];
+lines = lines.concat(mesh(landTopo, coastObj).coordinates || []);
+
+const countryTopo = await fetchJson(COUNTRIES_TOPO);
+const borderObj = countryTopo.objects.countries || Object.values(countryTopo.objects)[0];
+lines = lines.concat(mesh(countryTopo, borderObj, (a,b)=>a!==b).coordinates || []);
+
+globe.pathsData(lines);
+globe.pathPoints(d => d);
+globe.pathPointLat(p => p[1]);
+globe.pathPointLng(p => p[0]);
+globe.pathColor(() => LINE_COLOR);
+globe.pathStroke(LINE_WIDTH);
+
+
+// =========================
+// HOVER (Raycaster)
+// =========================
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+root.addEventListener("mousemove", ev => {
+  const rect = root.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const y = ev.clientY - rect.top;
+
+  mouse.x = (x / rect.width) * 2 - 1;
+  mouse.y = -(y / rect.height) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, globe.camera());
+  const hits = raycaster.intersectObjects(countryMeshes, true);
+
+  let picked = null;
+  for (const h of hits) {
+    const ud = h.object.userData || {};
+    const feat = ud.__data || ud.data || ud.feature || null;
+    const props = feat?.properties;
+    if (props && (props.ISO_A3 || props.ADMIN || props.NAME)) {
+      picked = props;
+      break;
+    }
+  }
+
+  if (!picked) {
+    hideTip();
+    return;
+  }
+
+  const iso = picked.ISO_A3;
+  const name = picked.ADMIN || picked.NAME || iso || "Country";
+
+  showTip(name, x, y);
+});
+
+root.addEventListener("mouseleave", hideTip);
+
+}
+
+</script>
+</body>
+</html>
