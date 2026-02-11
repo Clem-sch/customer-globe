@@ -98,10 +98,19 @@ const CUSTOMER_POINT_RADIUS = 0.55;
 const RING_ALT = 0.025;
 
 // Arcs look
-const ARC_COLOR = "rgba(0,200,0,0.45)";
-const ARC_ALTITUDE = 0.20;
+const ARC_COLOR = "rgba(80,130,255,0.75)";
+const ARC_ALTITUDE = 0.12;
 const ARC_STROKE = 0.5;
-const ARC_DASH_ANIM_MS = 10;
+
+globe.arcColor(() => ARC_COLOR);
+globe.arcAltitude(() => ARC_ALTITUDE);
+globe.arcStroke(() => ARC_STROKE);
+
+// dashed + animated
+globe.arcDashLength(0.15);      // short dash segments
+globe.arcDashGap(1.6);          // space between dashes
+globe.arcDashAnimateTime(2500); // speed (lower = faster)
+
 
 
 // =========================
