@@ -102,14 +102,7 @@ const ARC_COLOR = "rgba(80,130,255,0.75)";
 const ARC_ALTITUDE = 0.12;
 const ARC_STROKE = 0.5;
 
-globe.arcColor(() => ARC_COLOR);
-globe.arcAltitude(() => ARC_ALTITUDE);
-globe.arcStroke(() => ARC_STROKE);
 
-// dashed + animated
-globe.arcDashLength(0.15);      // short dash segments
-globe.arcDashGap(1.6);          // space between dashes
-globe.arcDashAnimateTime(2500); // speed (lower = faster)
 
 
 
@@ -270,10 +263,12 @@ if (MAP_MODE === "grid") {
       globe.arcColor(() => ARC_COLOR);
       globe.arcAltitude(() => ARC_ALTITUDE);
       globe.arcStroke(() => ARC_STROKE);
-
-      globe.arcDashLength(0.45);
-      globe.arcDashGap(2);
-      globe.arcDashAnimateTime(ARC_DASH_ANIM_MS);
+      
+      // dashed + animated
+      globe.arcDashLength(0.15);      // short dash segments
+      globe.arcDashGap(1.6);          // space between dashes
+      globe.arcDashAnimateTime(2500); // speed (lower = faster)      globe.arcDashLength(0.45);
+     
     } else {
       console.warn("Germany (DEU) not found in customers -> arcs disabled.");
       globe.arcsData([]);
