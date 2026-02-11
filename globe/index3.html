@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Customer Globe</title>
+
+<style>
+html,body{
+  margin:0;
+  width:100%;
+  height:100%;
+  background:#fff;
+}
+#globe{
+  width:100%;
+  height:100vh;
+}
+</style>
+</head>
+
+<body>
+<div id="globe"></div>
+
+<script type="module">
+import Globe from "https://esm.sh/globe.gl@2";
+import * as THREE from "https://esm.sh/three@0.160.0";
+import { feature } from "https://esm.sh/topojson-client@3";
+
+const CUSTOMERS_JSON = "../data/points.json";
+const COUNTRIES_JSON = "./countries_iso.geojson";
+const COAST_JSON = "./land-110m.json";
+const BORDERS_JSON = "./countries-110m.json";
+
+const ACTIVE_COLOR = "#2b6cff";
+const COUNTRY_COLOR = "#e5e7eb";
+const ARC_COLOR = "rgba(43,108,255,0.65)";
+
+const el = document.getElementById("globe");
+const globe = Globe()(el)
+  .backgroundColor("rgba(0,0,0,0)");
+
+globe.globeMaterial().color = new THREE.Color("#eef2f7");
+
+globe.atmosphereColor("#c7d6ff");
+globe.atmosphereAltitude(0.06);
+
+globe.controls().autoRotate = true;
+globe.controls().autoRotateSpeed = 0.6;
+
+globe.scene().add(new THREE.AmbientLight(0xffffff,1.4));
+const sun = new THREE.DirectionalLight(0xffffff,1);
+sun.position.set(2,1,1);
+globe.scene().add(sun);
+
+async function fetchJson(url){
+  const r = await fetch(url);
+  return r.json();
+}
+
+const customers = await fetchJson(CUSTOMERS_JSON);
+const countries = await fetchJson(COUNTRIES_JSON);
+const coastTopo = await fetchJson(COAST_JSON);
+const borderTopo = await fetchJson(BORDERS_JSON);
+
+const land = feature(coastTopo, coastTopo.objects.land);
+const borders = feature(borderTopo, borderTopo.objects.countries);
+
+const activeIso = new Set(customers.map(d => d.iso3));
+const activeNames = new Set(customers.map(d => d.name));
+
+/* ========== COAST ========== */
+globe.polygonsData(land.features)
+  .polygonCapColor(() => "#ffffff")
+  .polygonSideColor(() => "#ffffff")
+  .polygonStrokeColor(() => "#ffffff");
+
+/* ========== BORDERS ========== */
+globe.pathsData(borders.features)
+  .pathPoints(f => f.geometry.coordinates.flat())
+  .pathPointLat(p => p[1])
+  .pathPointLng(p => p[0])
+  .pathColor(() => "rgba(0,0,0,0.35)")
+  .pathStroke(1.3)
+  .pathAltitude(0.002);
+
+/* ========== COUNTRY FILL ========== */
+globe.polygonsData(countries.features)
+  .polygonCapColor(f => {
+    const iso = (f.properties.ISO_A3 || "").toUpperCase();
+    const name = f.properties.ADMIN;
+
+    const active =
+      (iso && iso !== "-99" && activeIso.has(iso)) ||
+      activeNames.has(name);
+
+    return active ? ACTIVE_COLOR : COUNTRY_COLOR;
+  })
+  .polygonAltitude(0.01)
+  .polygonSideColor(() => "rgba(0,0,0,0)");
+
+globe.polygonLabel(f => f.properties.ADMIN);
+
+/* ========== CUSTOMER POINTS ========== */
+globe.pointsData(customers)
+  .pointLat(d => d.lat)
+  .pointLng(d => d.lng)
+  .pointAltitude(0.03)
+  .pointRadius(0.55)
+  .pointColor(d => d.color);
+
+/* ========== RINGS ========== */
+globe.ringsData(customers)
+  .ringLat(d => d.lat)
+  .ringLng(d => d.lng)
+  .ringAltitude(0.025)
+  .ringColor(d => [d.color,"rgba(0,0,0,0)"])
+  .ringMaxRadius(2.8)
+  .ringPropagationSpeed(0.8)
+  .ringRepeatPeriod(2200);
+
+/* ========== 3D ARCS FROM GERMANY ========== */
+
+const germany = customers.find(d => d.iso3 === "DEU" || d.name === "Germany");
+
+const arcs = germany
+  ? customers
+      .filter(d => d !== germany)
+      .map(d => ({
+        startLat: germany.lat,
+        startLng: germany.lng,
+        endLat: d.lat,
+        endLng: d.lng
+      }))
+  : [];
+
+globe.arcsData(arcs)
+  .arcStartLat(d => d.startLat)
+  .arcStartLng(d => d.startLng)
+  .arcEndLat(d => d.endLat)
+  .arcEndLng(d => d.endLng)
+  .arcColor(() => ARC_COLOR)
+  .arcAltitude(0.25)
+  .arcStroke(0.7)
+  .arcDashLength(0.4)
+  .arcDashGap(2)
+  .arcDashAnimateTime(4000);
+
+</script>
+</body>
+</html>
