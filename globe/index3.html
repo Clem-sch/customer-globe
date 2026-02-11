@@ -265,9 +265,9 @@ if (MAP_MODE === "grid") {
       globe.arcStroke(() => ARC_STROKE);
       
       // dashed + animated
-      globe.arcDashLength(1);      // short dash segments
-      globe.arcDashGap(0.25);          // space between dashes
-      globe.arcDashAnimateTime(); // speed (lower = faster)      globe.arcDashLength(0.45);
+      globe.arcDashLength(0.9);      // short dash segments
+      globe.arcDashGap(0.15);          // space between dashes
+      globe.arcDashAnimateTime(2600); // speed (lower = faster)      
      
     } else {
       console.warn("Germany (DEU) not found in customers -> arcs disabled.");
