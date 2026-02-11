@@ -102,6 +102,10 @@ const ARC_COLOR = "rgba(80,130,255,0.75)";
 const ARC_ALTITUDE = 0;
 const ARC_STROKE = 0.25;
 
+const H_TARGET = 0.12;   // deine gewünschte Standard-Höhe (wie bisher)
+const H_MAX    = 0.30;   // absolute Obergrenze für sehr lange Distanzen
+const P        = 1.6;    // Kurvenform (größer = erst spät anheben)
+
 
 
 
@@ -262,11 +266,14 @@ if (MAP_MODE === "grid") {
 
       globe.arcColor(() => ARC_COLOR);
       globe.arcAltitude(d => {
-        const dist = Math.hypot(
-          d.endLat - d.startLat,
-          d.endLng - d.startLng
-        );
-        return 0.1 + Math.pow(dist / 120, 1.2);
+        // Distanz grob in Grad (reicht für Visual; robust + schnell)
+        const dist = Math.hypot(d.endLat - d.startLat, d.endLng - d.startLng);
+      
+        // Normalisieren: 0..1 (0 = sehr nah, 1 = sehr weit)
+        const t = Math.max(0, Math.min(1, dist / 140)); // 140 ~ "sehr weit"
+      
+        // nur Center anheben: kurze bleiben ~H_TARGET, lange gehen Richtung H_MAX
+        return H_TARGET + (H_MAX - H_TARGET) * Math.pow(t, P);
       });
 
       globe.arcStroke(() => ARC_STROKE);
