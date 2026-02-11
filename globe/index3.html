@@ -261,7 +261,14 @@ if (MAP_MODE === "grid") {
       globe.arcEndLng(d => d.endLng);
 
       globe.arcColor(() => ARC_COLOR);
-      globe.arcAltitude(() => ARC_ALTITUDE);
+      globe.arcAltitude(d => {
+        const dx = d.endLat - d.startLat;
+        const dy = d.endLng - d.startLng;
+      
+        const dist = Math.sqrt(dx*dx + dy*dy);
+      
+        return Math.min(0.35, 0.08 + dist * 0.004);
+      });
       globe.arcStroke(() => ARC_STROKE);
       
       // dashed + animated
