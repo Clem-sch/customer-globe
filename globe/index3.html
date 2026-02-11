@@ -1,150 +1,409 @@
 <!doctype html>
 <html lang="de">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Customer Globe</title>
 
 <style>
-html,body{
-  margin:0;
-  width:100%;
-  height:100%;
-  background:#fff;
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  font-family: system-ui, Arial, sans-serif;
 }
-#globe{
-  width:100%;
-  height:100vh;
+
+#wrap {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+#globe {
+  width: 100%;
+  height: 100%;
+}
+
+#tip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(0,0,0,.8);
+  color: #fff;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  display: none;
+  white-space: nowrap;
+  transform: translate(10px,10px);
 }
 </style>
 </head>
 
 <body>
-<div id="globe"></div>
+<div id="wrap">
+  <div id="globe"></div>
+  <div id="tip"></div>
+</div>
 
 <script type="module">
 import Globe from "https://esm.sh/globe.gl@2";
 import * as THREE from "https://esm.sh/three@0.160.0";
-import { feature } from "https://esm.sh/topojson-client@3";
+import { mesh } from "https://esm.sh/topojson-client@3";
 
+
+// =========================
+// TOGGLES
+// =========================
+const MAP_MODE = "coast";     // "grid" | "coast"
+
+const SHOW_CUSTOMER_POINTS = false;
+const SHOW_CUSTOMER_RINGS  = false;
+const SHOW_COUNTRY_FILL    = true;   // polygons
+
+const HOVER_ONLY_ACTIVE = true;
+
+// Arcs (Germany -> customers)
+const SHOW_ARCS = true;
+
+
+// =========================
+// FILES
+// =========================
 const CUSTOMERS_JSON = "../data/points.json";
-const COUNTRIES_JSON = "./countries_iso110.geojson";
-const COAST_JSON = "./land-110m.json";
-const BORDERS_JSON = "./countries-110m.json";
+const LAND_GRID_JSON = "../data/land_rings.json";
 
-const ACTIVE_COLOR = "#2b6cff";
-const COUNTRY_COLOR = "#e5e7eb";
-const ARC_COLOR = "rgba(43,108,255,0.65)";
+const COUNTRIES_TOPO = "./countries-110m.json";
+const LAND_TOPO      = "./land-110m.json";
+const COUNTRIES_GEO  = "./countries_iso110.geojson";
 
-const el = document.getElementById("globe");
-const globe = Globe()(el)
-  .backgroundColor("rgba(0,0,0,0)");
 
-globe.globeMaterial().color = new THREE.Color("#eef2f7");
+// =========================
+// STYLING
+// =========================
+const OCEAN_COLOR = "#eef2f7";
+
+const COUNTRY_COLOR = "rgba(20,20,20,0.06)";
+const ACTIVE_COLOR  = "rgba(20,20,20,0.22)";
+const HOVER_COLOR   = "rgba(0,0,0,0.35)";
+
+const LINE_COLOR = "rgba(0,0,0,1)";
+const LINE_WIDTH = 1;
+
+const LAND_POINT_ALT = 0.0015;
+const LAND_POINT_RADIUS = 0.40;
+
+const CUSTOMER_POINT_ALT = 0.03;
+const CUSTOMER_POINT_RADIUS = 0.55;
+const RING_ALT = 0.025;
+
+// Arcs look
+const ARC_COLOR = "rgba(0,0,0,0.45)";
+const ARC_ALTITUDE = 0.28;
+const ARC_STROKE = 0.8;
+const ARC_DASH_ANIM_MS = 4200;
+
+
+// =========================
+// HELPERS
+// =========================
+async function fetchJson(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`Fetch failed ${url}`);
+  return await r.json();
+}
+
+const root = document.getElementById("globe");
+const tip  = document.getElementById("tip");
+
+function showTip(text, x, y) {
+  tip.textContent = text;
+  tip.style.left = x + "px";
+  tip.style.top  = y + "px";
+  tip.style.display = "block";
+}
+
+function hideTip() {
+  tip.style.display = "none";
+}
+
+
+// =========================
+// INIT GLOBE
+// =========================
+const globe = Globe()(root);
+globe.backgroundColor("rgba(0,0,0,0)");
+
+const mat = globe.globeMaterial();
+mat.color = new THREE.Color(OCEAN_COLOR);
+mat.emissive = new THREE.Color("#ffffff");
+mat.emissiveIntensity = 0.06;
+// NICHT DoubleSide/transparent hier
+mat.transparent = true;
+mat.opacity = 0.9;
+mat.side = THREE.FrontSide;
+mat.depthWrite = true;
+
+const scene = globe.scene();
+scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+const key = new THREE.DirectionalLight(0xffffff, 1.0);
+key.position.set(2,1,1);
+scene.add(key);
 
 globe.atmosphereColor("#c7d6ff");
 globe.atmosphereAltitude(0.06);
 
-globe.controls().autoRotate = true;
+globe.controls().autoRotate = false;
 globe.controls().autoRotateSpeed = 0.6;
 
-globe.scene().add(new THREE.AmbientLight(0xffffff,1.4));
-const sun = new THREE.DirectionalLight(0xffffff,1);
-sun.position.set(2,1,1);
-globe.scene().add(sun);
 
-async function fetchJson(url){
-  const r = await fetch(url);
-  return r.json();
-}
-
+// =========================
+// LOAD DATA
+// =========================
 const customers = await fetchJson(CUSTOMERS_JSON);
-const countries = await fetchJson(COUNTRIES_JSON);
-const coastTopo = await fetchJson(COAST_JSON);
-const borderTopo = await fetchJson(BORDERS_JSON);
+const activeIso = new Set(customers.map(d => d.iso3).filter(Boolean));
 
-const land = feature(coastTopo, coastTopo.objects.land);
-const borders = feature(borderTopo, borderTopo.objects.countries);
+const activeNames = new Set(
+  customers.map(d => (d.name ?? "").trim()).filter(Boolean)
+);
 
-const activeIso = new Set(customers.map(d => d.iso3));
-const activeNames = new Set(customers.map(d => d.name));
+const custLat = d => MAP_MODE === "grid" ? d.lat : (d.raw_lat ?? d.lat);
+const custLng = d => MAP_MODE === "grid" ? d.lng : (d.raw_lng ?? d.lng);
 
-/* ========== COAST ========== */
-globe.polygonsData(land.features)
-  .polygonCapColor(() => "#ffffff")
-  .polygonSideColor(() => "#ffffff")
-  .polygonStrokeColor(() => "#ffffff");
 
-/* ========== BORDERS ========== */
-globe.pathsData(borders.features)
-  .pathPoints(f => f.geometry.coordinates.flat())
-  .pathPointLat(p => p[1])
-  .pathPointLng(p => p[0])
-  .pathColor(() => "rgba(0,0,0,0.35)")
-  .pathStroke(1.3)
-  .pathAltitude(0.002);
+// =========================
+// GRID MODE
+// =========================
+if (MAP_MODE === "grid") {
+  const land = await fetchJson(LAND_GRID_JSON);
 
-/* ========== COUNTRY FILL ========== */
-globe.polygonsData(countries.features)
-  .polygonCapColor(f => {
-    const iso = (f.properties.ISO_A3 || "").toUpperCase();
-    const name = f.properties.ADMIN;
+  const landPts = land.map(d => ({...d, t:"land"}));
+  const custPts = SHOW_CUSTOMER_POINTS ? customers.map(d => ({...d, t:"cust"})) : [];
 
-    const active =
+  globe.pointsData(landPts.concat(custPts));
+  globe.pointLat(d => d.t==="cust" ? custLat(d) : d.lat);
+  globe.pointLng(d => d.t==="cust" ? custLng(d) : d.lng);
+  globe.pointAltitude(d => d.t==="cust" ? CUSTOMER_POINT_ALT : LAND_POINT_ALT);
+  globe.pointRadius(d => d.t==="cust" ? CUSTOMER_POINT_RADIUS : LAND_POINT_RADIUS);
+  globe.pointColor(d => d.t==="cust" ? d.color : "#111");
+
+  if (SHOW_CUSTOMER_RINGS) {
+    globe.ringsData(customers);
+    globe.ringLat(custLat);
+    globe.ringLng(custLng);
+    globe.ringAltitude(RING_ALT);
+    globe.ringColor(d => [d.color, "rgba(0,0,0,0)"]);
+    globe.ringMaxRadius(() => 2.8);
+    globe.ringPropagationSpeed(0.8);
+    globe.ringRepeatPeriod(2200);
+  } else {
+    globe.ringsData([]);
+  }
+
+  // In grid-mode: arcs standardmäßig aus (wenn du willst, kann man sie hier auch aktivieren)
+  globe.arcsData([]);
+
+} else {
+
+  // =========================
+  // COAST MODE
+  // =========================
+
+  // Customer points
+  if (SHOW_CUSTOMER_POINTS) {
+    globe.pointsData(customers);
+    globe.pointLat(custLat);
+    globe.pointLng(custLng);
+    globe.pointAltitude(() => CUSTOMER_POINT_ALT);
+    globe.pointRadius(() => CUSTOMER_POINT_RADIUS);
+    globe.pointColor(d => d.color);
+  } else {
+    globe.pointsData([]);
+  }
+
+  // Rings
+  if (SHOW_CUSTOMER_RINGS) {
+    globe.ringsData(customers);
+    globe.ringLat(custLat);
+    globe.ringLng(custLng);
+    globe.ringAltitude(RING_ALT);
+    globe.ringColor(d => [d.color, "rgba(0,0,0,0)"]);
+    globe.ringMaxRadius(() => 2.8);
+    globe.ringPropagationSpeed(0.8);
+    globe.ringRepeatPeriod(2200);
+  } else {
+    globe.ringsData([]);
+  }
+
+  // =========================
+  // 3D CONNECTION ARCS (Germany -> customers)
+  // =========================
+  if (SHOW_ARCS) {
+    const germany = customers.find(d => d.iso3 === "DEU" || d.name === "Germany");
+
+    if (germany) {
+      const arcs = customers
+        .filter(d => d !== germany)
+        .map(d => ({
+          startLat: custLat(germany),
+          startLng: custLng(germany),
+          endLat: custLat(d),
+          endLng: custLng(d)
+        }));
+
+      globe.arcsData(arcs);
+
+      globe.arcStartLat(d => d.startLat);
+      globe.arcStartLng(d => d.startLng);
+      globe.arcEndLat(d => d.endLat);
+      globe.arcEndLng(d => d.endLng);
+
+      globe.arcColor(() => ARC_COLOR);
+      globe.arcAltitude(() => ARC_ALTITUDE);
+      globe.arcStroke(() => ARC_STROKE);
+
+      globe.arcDashLength(0.45);
+      globe.arcDashGap(2);
+      globe.arcDashAnimateTime(ARC_DASH_ANIM_MS);
+    } else {
+      console.warn("Germany (DEU) not found in customers -> arcs disabled.");
+      globe.arcsData([]);
+    }
+  } else {
+    globe.arcsData([]);
+  }
+
+  // =========================
+  // COUNTRY POLYGONS
+  // =========================
+  let countryMeshes = [];
+
+  if (SHOW_COUNTRY_FILL) {
+    const geo = await fetchJson(COUNTRIES_GEO);
+
+    globe.polygonsData(geo.features);
+
+    globe.polygonLabel(f => {
+      const iso  = (f?.properties?.ISO_A3 ?? "").trim().toUpperCase();
+      const name = (f?.properties?.ADMIN ?? f?.properties?.NAME ?? "").trim();
+
+      const isActive =
+        (iso && iso !== "-99" && activeIso.has(iso)) ||
+        (name && activeNames.has(name));
+
+      if (!isActive && HOVER_ONLY_ACTIVE) return null;
+
+      return name;
+    });
+
+    globe.polygonAltitude(0.003);
+
+    globe.polygonCapColor(f => {
+      const iso  = (f?.properties?.ISO_A3 ?? "").trim().toUpperCase();
+      const name = (f?.properties?.ADMIN ?? f?.properties?.NAME ?? "").trim();
+
+      const isActive =
+        (iso && iso !== "-99" && activeIso.has(iso)) ||
+        (name && activeNames.has(name));
+
+      return isActive ? ACTIVE_COLOR : COUNTRY_COLOR;
+    });
+
+    globe.polygonSideColor(() => "rgba(0,0,0,0)");
+    globe.polygonStrokeColor(() => "rgba(0,0,0,0)");
+
+    // grab polygon meshes after render tick
+    setTimeout(() => {
+      countryMeshes = [];
+      globe.scene().traverse(o => {
+        if (!o.isMesh) return;
+
+        const ud = o.userData || {};
+        const feat = ud.__data || ud.data || ud.feature || null;
+        const props = feat?.properties;
+
+        if (props && (props.ISO_A3 || props.ADMIN || props.NAME)) {
+          countryMeshes.push(o);
+        }
+      });
+
+      console.log("Country polygon meshes:", countryMeshes.length);
+    }, 600);
+  } else {
+    globe.polygonsData([]);
+  }
+
+  // =========================
+  // COAST + BORDERS
+  // =========================
+  let lines = [];
+
+  const landTopo = await fetchJson(LAND_TOPO);
+  const coastObj = landTopo.objects.land || Object.values(landTopo.objects)[0];
+  lines = lines.concat(mesh(landTopo, coastObj).coordinates || []);
+
+  const countryTopo = await fetchJson(COUNTRIES_TOPO);
+  const borderObj = countryTopo.objects.countries || Object.values(countryTopo.objects)[0];
+  lines = lines.concat(mesh(countryTopo, borderObj, (a,b)=>a!==b).coordinates || []);
+
+  globe.pathsData(lines);
+  globe.pathPoints(d => d);
+  globe.pathPointLat(p => p[1]);
+  globe.pathPointLng(p => p[0]);
+  globe.pathColor(() => LINE_COLOR);
+  globe.pathStroke(LINE_WIDTH);
+
+  // =========================
+  // HOVER (Raycaster)
+  // =========================
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+
+  root.addEventListener("mousemove", ev => {
+    const rect = root.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+
+    mouse.x = (x / rect.width) * 2 - 1;
+    mouse.y = -(y / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, globe.camera());
+    const hits = raycaster.intersectObjects(countryMeshes, true);
+
+    let picked = null;
+    for (const h of hits) {
+      const ud = h.object.userData || {};
+      const feat = ud.__data || ud.data || ud.feature || null;
+      const props = feat?.properties;
+      if (props && (props.ISO_A3 || props.ADMIN || props.NAME)) {
+        picked = props;
+        break;
+      }
+    }
+
+    if (!picked) {
+      hideTip();
+      return;
+    }
+
+    const iso  = (picked.ISO_A3 ?? "").trim().toUpperCase();
+    const name = (picked.ADMIN || picked.NAME || iso || "Country").trim();
+
+    // same active logic as fill
+    const isActive =
       (iso && iso !== "-99" && activeIso.has(iso)) ||
-      activeNames.has(name);
+      (name && activeNames.has(name));
 
-    return active ? ACTIVE_COLOR : COUNTRY_COLOR;
-  })
-  .polygonAltitude(0.01)
-  .polygonSideColor(() => "rgba(0,0,0,0)");
+    if (HOVER_ONLY_ACTIVE && !isActive) {
+      hideTip();
+      return;
+    }
 
-globe.polygonLabel(f => f.properties.ADMIN);
+    showTip(name, x, y);
+  });
 
-/* ========== CUSTOMER POINTS ========== */
-globe.pointsData(customers)
-  .pointLat(d => d.lat)
-  .pointLng(d => d.lng)
-  .pointAltitude(0.03)
-  .pointRadius(0.55)
-  .pointColor(d => d.color);
-
-/* ========== RINGS ========== */
-globe.ringsData(customers)
-  .ringLat(d => d.lat)
-  .ringLng(d => d.lng)
-  .ringAltitude(0.025)
-  .ringColor(d => [d.color,"rgba(0,0,0,0)"])
-  .ringMaxRadius(2.8)
-  .ringPropagationSpeed(0.8)
-  .ringRepeatPeriod(2200);
-
-/* ========== 3D ARCS FROM GERMANY ========== */
-
-const germany = customers.find(d => d.iso3 === "DEU" || d.name === "Germany");
-
-const arcs = germany
-  ? customers
-      .filter(d => d !== germany)
-      .map(d => ({
-        startLat: germany.lat,
-        startLng: germany.lng,
-        endLat: d.lat,
-        endLng: d.lng
-      }))
-  : [];
-
-globe.arcsData(arcs)
-  .arcStartLat(d => d.startLat)
-  .arcStartLng(d => d.startLng)
-  .arcEndLat(d => d.endLat)
-  .arcEndLng(d => d.endLng)
-  .arcColor(() => ARC_COLOR)
-  .arcAltitude(0.25)
-  .arcStroke(0.7)
-  .arcDashLength(0.4)
-  .arcDashGap(2)
-  .arcDashAnimateTime(4000);
+  root.addEventListener("mouseleave", hideTip);
+}
 
 </script>
 </body>
