@@ -1,5 +1,19 @@
 [
   {
+    "country": "USA",
+    "name": "United States",
+    "iso3": "USA",
+    "lat": 38.0,
+    "lng": -98.98342077566114,
+    "raw_lat": 37.23674500000004,
+    "raw_lng": -99.31483211377505,
+    "value": 1.0,
+    "orders": 1.0,
+    "offers": 1.0,
+    "size": 0.525,
+    "color": "#34c759"
+  },
+  {
     "country": "Canada",
     "name": "Canada",
     "iso3": "CAN",
@@ -195,5 +209,4 @@
     "size": 0.525,
     "color": "#34c759"
   }
-
 ]
