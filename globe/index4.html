@@ -184,25 +184,7 @@ window.addEventListener("keyup", e => {
   if (!isTouch && e.key === "Control") controls.enableZoom = false;
 });
   
-let __paused = false;
 
-function setPaused(paused) {
-  __paused = !!paused;
-  globe.controls().autoRotate = !__paused && globe.controls().autoRotate;
-  // stop/start arc dash animation by freezing time: easiest is to set animate time huge when paused
-  if (__paused) {
-    globe.arcDashAnimateTime(1e12);
-  } else {
-    globe.arcDashAnimateTime(3600); // <- deine normale Geschwindigkeit
-  }
-  // optional: reduce render work when paused
-  globe.renderer().setAnimationLoop(__paused ? null : undefined);
-}
-
-window.addEventListener("message", (ev) => {
-  const msg = ev.data || {};
-  if (msg.type === "GLOBE_PAUSE") setPaused(msg.paused);
-});
 
 // =========================
 // LOAD DATA
