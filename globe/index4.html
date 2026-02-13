@@ -13,12 +13,7 @@ html, body {
   background: #fff;
   font-family: system-ui, Arial, sans-serif;
 }
-<div id="controls">
-  <button data-mode="global">Global</button>
-  <button data-mode="usa">USA</button>
-  <button data-mode="both">Both</button>
-  <button data-mode="none">None</button>
-</div>
+
 
 #wrap {
   width: 100%;
@@ -71,6 +66,14 @@ html, body {
 </head>
 
 <body>
+
+<div id="controls">
+  <button data-mode="global">Global</button>
+  <button data-mode="usa">USA</button>
+  <button data-mode="both">Both</button>
+  <button data-mode="none">None</button>
+</div>
+  
 <div id="wrap">
   <div id="globe"></div>
   <div id="tip"></div>
@@ -87,8 +90,9 @@ import { mesh } from "https://esm.sh/topojson-client@3";
 // =========================
 const MAP_MODE = "coast";     // "grid" | "coast"
 
-const SHOW_CUSTOMERS_GLOBAL = true;
-const SHOW_CUSTOMERS_USA    = true;
+let SHOW_CUSTOMERS_GLOBAL = true;
+let SHOW_CUSTOMERS_USA = true;
+
   
 const SHOW_CUSTOMER_POINTS = true;
 const SHOW_CUSTOMER_RINGS  = false;
@@ -172,9 +176,17 @@ function hideTip() {
 // INIT GLOBE
 // =========================
 const globe = Globe()(root);
-  
+globe.renderer().setPixelRatio(
+  Math.min(window.devicePixelRatio, 1.5)
+);
+
+globe.controls().enableDamping = true;
+globe.controls().dampingFactor = 0.08;
+ 
 globe.backgroundColor("rgba(0,0,0,0)");
 const controls = globe.controls();
+
+// desktop: ctrl + scroll only
 controls.enableZoom = false;
 
 window.addEventListener("keydown", e => {
@@ -184,6 +196,11 @@ window.addEventListener("keydown", e => {
 window.addEventListener("keyup", e => {
   if (e.key === "Control") controls.enableZoom = false;
 });
+
+// mobile: always allow pinch
+if ("ontouchstart" in window) {
+  controls.enableZoom = true;
+}
 
 const mat = globe.globeMaterial();
 mat.color = new THREE.Color(OCEAN_COLOR);
@@ -343,7 +360,8 @@ if (MAP_MODE === "grid") {
       return H_TARGET + (H_MAX - H_TARGET) * Math.pow(t, P);
     });
     
-    globe.arcStroke(() => ARC_STROKE);
+    globe.arcStroke(ARC_STROKE);
+
     
     // dashed + animated (moving gaps)
     globe.arcDashLength(0.9);
