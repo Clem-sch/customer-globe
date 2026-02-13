@@ -14,10 +14,9 @@ html, body {
   font-family: system-ui, Arial, sans-serif;
 }
 
-
 #wrap {
   width: 100%;
-  height: 100%;
+  height: 100vh;
   position: relative;
 }
 
@@ -26,19 +25,6 @@ html, body {
   height: 100%;
 }
 
-#tip {
-  position: absolute;
-  pointer-events: none;
-  background: rgba(0,0,0,.8);
-  color: #fff;
-  padding: 6px 8px;
-  border-radius: 8px;
-  font-size: 12px;
-  display: none;
-  white-space: nowrap;
-  transform: translate(10px,10px);
-}
-  
 #controls {
   position: absolute;
   top: 14px;
@@ -58,25 +44,21 @@ html, body {
   font-size: 12px;
 }
 
-#controls button:hover {
-  background: rgba(0,0,0,0.85);
-}
-
+#controls button:hover { background: rgba(0,0,0,0.85); }
+#controls button.active { outline: 2px solid rgba(255,255,255,0.7); }
 </style>
 </head>
 
 <body>
-
-<div id="controls">
-  <button data-mode="global">Global</button>
-  <button data-mode="usa">USA</button>
-  <button data-mode="both">Both</button>
-  <button data-mode="none">None</button>
-</div>
-  
 <div id="wrap">
+  <div id="controls">
+    <button data-mode="global">Global</button>
+    <button data-mode="usa">USA</button>
+    <button data-mode="both">Both</button>
+    <button data-mode="none">None</button>
+  </div>
+
   <div id="globe"></div>
-  <div id="tip"></div>
 </div>
 
 <script type="module">
@@ -84,136 +66,101 @@ import Globe from "https://esm.sh/globe.gl@2";
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { mesh } from "https://esm.sh/topojson-client@3";
 
-
 // =========================
-// TOGGLES
+// SETTINGS / TOGGLES
 // =========================
-const MAP_MODE = "coast";     // "grid" | "coast"
+const MAP_MODE = "coast"; // keep "coast"
 
-let SHOW_CUSTOMERS_GLOBAL = true;
-let SHOW_CUSTOMERS_USA = true;
+// URL mode: ?mode=global|usa|both|none
+const params = new URLSearchParams(location.search);
+const MODE = (params.get("mode") || "both").toLowerCase();
 
-  
+const SHOW_CUSTOMERS_GLOBAL = (MODE === "global" || MODE === "both");
+const SHOW_CUSTOMERS_USA    = (MODE === "usa"    || MODE === "both");
+
+// Layers
 const SHOW_CUSTOMER_POINTS = true;
 const SHOW_CUSTOMER_RINGS  = false;
-const SHOW_COUNTRY_FILL    = true;   // polygons
-
-const HOVER_ONLY_ACTIVE = true;
-
-// Arcs (Germany -> customers)
-const SHOW_ARCS = true;
-
+const SHOW_COUNTRY_FILL    = true;
+const HOVER_ONLY_ACTIVE    = true;
+const SHOW_ARCS            = true;
 
 // =========================
 // FILES
 // =========================
-const CUSTOMERS_JSON = "../data/points.json";
-const LAND_GRID_JSON = "../data/land_rings.json";
+const GLOBAL_JSON = "../data/points.json";
+const USA_JSON    = "../data/pointsUSA.json";
 
 const COUNTRIES_TOPO = "./countries-110m.json";
 const LAND_TOPO      = "./land-110m.json";
 const COUNTRIES_GEO  = "./countries_iso110.geojson";
 
-
 // =========================
 // STYLING
 // =========================
-const OCEAN_COLOR = "#eef2f7";
-
+const OCEAN_COLOR   = "#eef2f7";
 const COUNTRY_COLOR = "rgba(20,20,20,0.06)";
 const ACTIVE_COLOR  = "rgba(20,20,20,0.22)";
-const HOVER_COLOR   = "rgba(0,0,0,0.35)";
-
-const LINE_COLOR = "rgba(0,0,0,1)";
-const LINE_WIDTH = 1;
-
-const LAND_POINT_ALT = 0.0015;
-const LAND_POINT_RADIUS = 0.40;
+const LINE_COLOR    = "rgba(0,0,0,1)";
+const LINE_WIDTH    = 1;
 
 const CUSTOMER_POINT_ALT = 0.03;
 const CUSTOMER_POINT_RADIUS = 0.55;
+
 const RING_ALT = 0.025;
 
-// Arcs look
-const ARC_COLOR = "rgba(80,130,255,0.75)";
-const ARC_ALTITUDE = 0.6;
+// Arcs (moving gaps)
 const ARC_STROKE = 0.25;
-
 const H_TARGET = 0.12;
-const H_MAX    = 0.38;
-const P        = 1.25;   // vorher 1.6 (früherer Lift)
-
-
-
-
-
+const H_MAX    = 0.42;  // a bit higher to avoid NZ/AU cutting
+const P        = 1.25;
 
 // =========================
 // HELPERS
 // =========================
 async function fetchJson(url) {
   const r = await fetch(url);
-  if (!r.ok) throw new Error(`Fetch failed ${url}`);
+  if (!r.ok) throw new Error(`Fetch failed ${url} (HTTP ${r.status})`);
   return await r.json();
 }
 
-const root = document.getElementById("globe");
-const tip  = document.getElementById("tip");
+function normIso(v){ return (v ?? "").trim().toUpperCase(); }
+function normName(v){ return (v ?? "").trim(); }
 
-function showTip(text, x, y) {
-  tip.textContent = text;
-  tip.style.left = x + "px";
-  tip.style.top  = y + "px";
-  tip.style.display = "block";
-}
-
-function hideTip() {
-  tip.style.display = "none";
-}
-
+// =========================
+// BUTTONS
+// =========================
+const btns = [...document.querySelectorAll("#controls button")];
+btns.forEach(b => {
+  if (b.dataset.mode === MODE) b.classList.add("active");
+  b.onclick = () => {
+    const m = b.dataset.mode;
+    const u = new URL(location.href);
+    u.searchParams.set("mode", m);
+    location.href = u.toString();
+  };
+});
 
 // =========================
 // INIT GLOBE
 // =========================
-const globe = Globe()(root);
-globe.renderer().setPixelRatio(
-  Math.min(window.devicePixelRatio, 1.5)
-);
+const root = document.getElementById("globe");
+const globe = Globe()(root).backgroundColor("rgba(0,0,0,0)");
 
-globe.controls().enableDamping = true;
-globe.controls().dampingFactor = 0.08;
- 
-globe.backgroundColor("rgba(0,0,0,0)");
-const controls = globe.controls();
-
-// desktop: ctrl + scroll only
-controls.enableZoom = false;
-
-window.addEventListener("keydown", e => {
-  if (e.key === "Control") controls.enableZoom = true;
-});
-
-window.addEventListener("keyup", e => {
-  if (e.key === "Control") controls.enableZoom = false;
-});
-
-// mobile: always allow pinch
-if ("ontouchstart" in window) {
-  controls.enableZoom = true;
-}
+// performance: cap pixel ratio
+globe.renderer().setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 
 const mat = globe.globeMaterial();
 mat.color = new THREE.Color(OCEAN_COLOR);
 mat.emissive = new THREE.Color("#ffffff");
 mat.emissiveIntensity = 0.06;
-// NICHT DoubleSide/transparent hier
 mat.transparent = true;
 mat.opacity = 0.9;
 mat.side = THREE.FrontSide;
 mat.depthWrite = true;
 
 const scene = globe.scene();
-scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+scene.add(new THREE.AmbientLight(0xffffff, 1.35));
 const key = new THREE.DirectionalLight(0xffffff, 1.0);
 key.position.set(2,1,1);
 scene.add(key);
@@ -221,292 +168,170 @@ scene.add(key);
 globe.atmosphereColor("#c7d6ff");
 globe.atmosphereAltitude(0.06);
 
-globe.controls().autoRotate = false;
-globe.controls().autoRotateSpeed = 0.6;
+const controls = globe.controls();
+controls.autoRotate = false;
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
 
+// Desktop: zoom only with CTRL. Mobile: pinch zoom enabled.
+const isTouch = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+controls.enableZoom = isTouch ? true : false;
+
+window.addEventListener("keydown", e => {
+  if (!isTouch && e.key === "Control") controls.enableZoom = true;
+});
+window.addEventListener("keyup", e => {
+  if (!isTouch && e.key === "Control") controls.enableZoom = false;
+});
 
 // =========================
 // LOAD DATA
 // =========================
-const customersGlobal = (SHOW_CUSTOMERS_GLOBAL ? await fetchJson("../data/points.json") : [])
-  .map(d => ({ ...d, group: "global" }));
+const [customersGlobal, customersUSA, geo, landTopo, countriesTopo] = await Promise.all([
+  SHOW_CUSTOMERS_GLOBAL ? fetchJson(GLOBAL_JSON) : Promise.resolve([]),
+  SHOW_CUSTOMERS_USA    ? fetchJson(USA_JSON)    : Promise.resolve([]),
+  SHOW_COUNTRY_FILL     ? fetchJson(COUNTRIES_GEO) : Promise.resolve({features: []}),
+  fetchJson(LAND_TOPO),
+  fetchJson(COUNTRIES_TOPO)
+]);
 
-const customersUSA = (SHOW_CUSTOMERS_USA ? await fetchJson("../data/pointsUSA.json") : [])
-  .map(d => ({ ...d, group: "usa" }));
+const customers = [
+  ...customersGlobal.map(d => ({...d, group: "global"})),
+  ...customersUSA.map(d => ({...d, group: "usa"}))
+];
 
-const customers = [...customersGlobal, ...customersUSA];
+// Active sets (normalized!)
+const activeIso = new Set(customers.map(d => normIso(d.iso3)).filter(Boolean));
+const activeNames = new Set(customers.map(d => normName(d.name)).filter(Boolean));
 
-const btns = document.querySelectorAll("#controls button");
+// Use raw coords in coast mode (no grid snapping)
+const custLat = d => (d.raw_lat ?? d.lat);
+const custLng = d => (d.raw_lng ?? d.lng);
 
-btns.forEach(b => {
-  b.onclick = () => {
-    const mode = b.dataset.mode;
-
-    SHOW_CUSTOMERS_GLOBAL = mode === "global" || mode === "both";
-    SHOW_CUSTOMERS_USA    = mode === "usa" || mode === "both";
-
-    location.reload(); // simplest clean refresh
-  };
-});
- 
-  
-const hubDE = customers.find(d => (d.iso3 ?? "").toUpperCase() === "DEU" || (d.name ?? "") === "Germany");
-const hubUS = customers.find(d => (d.iso3 ?? "").toUpperCase() === "USA" || (d.name ?? "") === "United States");
-
-  
-const activeIso = new Set(customers.map(d => d.iso3).filter(Boolean));
-const activeNames = new Set(customers.map(d => d.name).filter(Boolean));
-
-
-
-const custLat = d => MAP_MODE === "grid" ? d.lat : (d.raw_lat ?? d.lat);
-const custLng = d => MAP_MODE === "grid" ? d.lng : (d.raw_lng ?? d.lng);
-
+// hubs
+const hubDE = customers.find(d => normIso(d.iso3) === "DEU" || normName(d.name) === "Germany");
+const hubUS = customers.find(d => normIso(d.iso3) === "USA" || normName(d.name) === "United States");
 
 // =========================
-// GRID MODE
+// CUSTOMER POINTS
 // =========================
-if (MAP_MODE === "grid") {
-  const land = await fetchJson(LAND_GRID_JSON);
-
-  const landPts = land.map(d => ({...d, t:"land"}));
-  const custPts = SHOW_CUSTOMER_POINTS ? customers.map(d => ({...d, t:"cust"})) : [];
-
-  globe.pointsData(landPts.concat(custPts));
-  globe.pointLat(d => d.t==="cust" ? custLat(d) : d.lat);
-  globe.pointLng(d => d.t==="cust" ? custLng(d) : d.lng);
-  globe.pointAltitude(d => d.t==="cust" ? CUSTOMER_POINT_ALT : LAND_POINT_ALT);
-  globe.pointRadius(d => d.t==="cust" ? CUSTOMER_POINT_RADIUS : LAND_POINT_RADIUS);
-  globe.pointColor(d => d.t==="cust" ? d.color : "#111");
-
-  if (SHOW_CUSTOMER_RINGS) {
-    globe.ringsData(customers);
-    globe.ringLat(custLat);
-    globe.ringLng(custLng);
-    globe.ringAltitude(RING_ALT);
-    globe.ringColor(d => [d.color, "rgba(0,0,0,0)"]);
-    globe.ringMaxRadius(() => 2.8);
-    globe.ringPropagationSpeed(0.8);
-    globe.ringRepeatPeriod(2200);
-  } else {
-    globe.ringsData([]);
-  }
-
-  // In grid-mode: arcs standardmäßig aus (wenn du willst, kann man sie hier auch aktivieren)
-  globe.arcsData([]);
-
+if (SHOW_CUSTOMER_POINTS) {
+  globe.pointsData(customers)
+    .pointLat(custLat)
+    .pointLng(custLng)
+    .pointAltitude(CUSTOMER_POINT_ALT)
+    .pointRadius(CUSTOMER_POINT_RADIUS)
+    .pointColor(d => d.color);
 } else {
+  globe.pointsData([]);
+}
 
-  // =========================
-  // COAST MODE
-  // =========================
+// =========================
+// RINGS
+// =========================
+if (SHOW_CUSTOMER_RINGS) {
+  globe.ringsData(customers)
+    .ringLat(custLat)
+    .ringLng(custLng)
+    .ringAltitude(RING_ALT)
+    .ringColor(d => [d.color, "rgba(0,0,0,0)"])
+    .ringMaxRadius(() => 2.8)
+    .ringPropagationSpeed(0.8)
+    .ringRepeatPeriod(2200);
+} else {
+  globe.ringsData([]);
+}
 
-  // Customer points
-  if (SHOW_CUSTOMER_POINTS) {
-    globe.pointsData(customers);
-    globe.pointLat(custLat);
-    globe.pointLng(custLng);
-    globe.pointAltitude(() => CUSTOMER_POINT_ALT);
-    globe.pointRadius(() => CUSTOMER_POINT_RADIUS);
-    globe.pointColor(d => d.color);
-  } else {
-    globe.pointsData([]);
-  }
+// =========================
+// ARCS (two hubs, one layer)
+// =========================
+if (SHOW_ARCS) {
+  const arcs = customers
+    .filter(d => (d.group === "usa" ? hubUS : hubDE))
+    .filter(d => (d.group === "usa" ? d !== hubUS : d !== hubDE))
+    .map(d => {
+      const hub = (d.group === "usa") ? hubUS : hubDE;
+      return {
+        startLat: custLat(hub),
+        startLng: custLng(hub),
+        endLat: custLat(d),
+        endLng: custLng(d),
+        group: d.group
+      };
+    });
 
-  // Rings
-  if (SHOW_CUSTOMER_RINGS) {
-    globe.ringsData(customers);
-    globe.ringLat(custLat);
-    globe.ringLng(custLng);
-    globe.ringAltitude(RING_ALT);
-    globe.ringColor(d => [d.color, "rgba(0,0,0,0)"]);
-    globe.ringMaxRadius(() => 2.8);
-    globe.ringPropagationSpeed(0.8);
-    globe.ringRepeatPeriod(2200);
-  } else {
-    globe.ringsData([]);
-  }
-
-  // =========================
-  // 3D CONNECTION ARCS (Germany -> customers)
-  // =========================
-  if (SHOW_ARCS) {
-    const arcs = customers
-      .filter(d => d.group === "global" ? hubDE && d !== hubDE : hubUS && d !== hubUS)
-      .map(d => {
-        const hub = (d.group === "usa") ? hubUS : hubDE;
-        return {
-          startLat: custLat(hub),
-          startLng: custLng(hub),
-          endLat: custLat(d),
-          endLng: custLng(d),
-          group: d.group
-        };
-      });
-    
-    globe.arcsData(arcs);
-    
-    globe.arcStartLat(d => d.startLat);
-    globe.arcStartLng(d => d.startLng);
-    globe.arcEndLat(d => d.endLat);
-    globe.arcEndLng(d => d.endLng);
-    
-    // optional: different colors per hub/group
-    globe.arcColor(d => d.group === "usa" ? "rgba(255,80,80,0.70)" : "rgba(80,130,255,0.75)");
-    
-    globe.arcAltitude(d => {
+  globe.arcsData(arcs)
+    .arcStartLat(d => d.startLat)
+    .arcStartLng(d => d.startLng)
+    .arcEndLat(d => d.endLat)
+    .arcEndLng(d => d.endLng)
+    .arcColor(d => d.group === "usa"
+      ? "rgba(255,80,80,0.70)"
+      : "rgba(80,130,255,0.75)"
+    )
+    .arcStroke(ARC_STROKE)
+    .arcAltitude(d => {
       const dist = Math.hypot(d.endLat - d.startLat, d.endLng - d.startLng);
       const t = Math.max(0, Math.min(1, dist / 140));
       return H_TARGET + (H_MAX - H_TARGET) * Math.pow(t, P);
-    });
-    
-    globe.arcStroke(ARC_STROKE);
+    })
+    // dashed + moving gaps
+    .arcDashLength(0.9)
+    .arcDashGap(0.05)
+    .arcDashAnimateTime(3600);
+} else {
+  globe.arcsData([]);
+}
 
-    
-    // dashed + animated (moving gaps)
-    globe.arcDashLength(0.9);
-    globe.arcDashGap(0.05);
-    globe.arcDashAnimateTime(3600);
-
-    } else {
-      console.warn("Germany (DEU) not found in customers -> arcs disabled.");
-      globe.arcsData([]);
-    }
-  } else {
-    globe.arcsData([]);
-  }
-
-  // =========================
-  // COUNTRY POLYGONS
-  // =========================
-  let countryMeshes = [];
-
-  if (SHOW_COUNTRY_FILL) {
-    const geo = await fetchJson(COUNTRIES_GEO);
-
-    globe.polygonsData(geo.features);
-
-    globe.polygonLabel(f => {
-      const iso  = (f?.properties?.ISO_A3 ?? "").trim().toUpperCase();
-      const name = (f?.properties?.ADMIN ?? f?.properties?.NAME ?? "").trim();
-
-      const isActive =
-        (iso && iso !== "-99" && activeIso.has(iso)) ||
-        (name && activeNames.has(name));
-
-      if (!isActive && HOVER_ONLY_ACTIVE) return null;
-
-      return name;
-    });
-
-    globe.polygonAltitude(0.003);
-
-    globe.polygonCapColor(f => {
-      const iso  = (f?.properties?.ISO_A3 ?? "").trim().toUpperCase();
-      const name = (f?.properties?.ADMIN ?? f?.properties?.NAME ?? "").trim();
+// =========================
+// COUNTRY FILL + HOVER
+// =========================
+if (SHOW_COUNTRY_FILL) {
+  globe.polygonsData(geo.features)
+    .polygonAltitude(0.003)
+    .polygonCapColor(f => {
+      const iso  = normIso(f?.properties?.ISO_A3);
+      const name = normName(f?.properties?.ADMIN ?? f?.properties?.NAME);
 
       const isActive =
         (iso && iso !== "-99" && activeIso.has(iso)) ||
         (name && activeNames.has(name));
 
       return isActive ? ACTIVE_COLOR : COUNTRY_COLOR;
+    })
+    .polygonSideColor(() => "rgba(0,0,0,0)")
+    .polygonStrokeColor(() => "rgba(0,0,0,0)")
+    .polygonLabel(f => {
+      const iso  = normIso(f?.properties?.ISO_A3);
+      const name = normName(f?.properties?.ADMIN ?? f?.properties?.NAME);
+
+      const isActive =
+        (iso && iso !== "-99" && activeIso.has(iso)) ||
+        (name && activeNames.has(name));
+
+      if (!isActive && HOVER_ONLY_ACTIVE) return null;
+      return `<div style="background:rgba(0,0,0,.8);color:#fff;padding:6px 8px;border-radius:8px;font-size:12px;">${name}</div>`;
     });
-
-    globe.polygonSideColor(() => "rgba(0,0,0,0)");
-    globe.polygonStrokeColor(() => "rgba(0,0,0,0)");
-
-    // grab polygon meshes after render tick
-    setTimeout(() => {
-      countryMeshes = [];
-      globe.scene().traverse(o => {
-        if (!o.isMesh) return;
-
-        const ud = o.userData || {};
-        const feat = ud.__data || ud.data || ud.feature || null;
-        const props = feat?.properties;
-
-        if (props && (props.ISO_A3 || props.ADMIN || props.NAME)) {
-          countryMeshes.push(o);
-        }
-      });
-
-      console.log("Country polygon meshes:", countryMeshes.length);
-    }, 600);
-  } else {
-    globe.polygonsData([]);
-  }
-
-  // =========================
-  // COAST + BORDERS
-  // =========================
-  let lines = [];
-
-  const landTopo = await fetchJson(LAND_TOPO);
-  const coastObj = landTopo.objects.land || Object.values(landTopo.objects)[0];
-  lines = lines.concat(mesh(landTopo, coastObj).coordinates || []);
-
-  const countryTopo = await fetchJson(COUNTRIES_TOPO);
-  const borderObj = countryTopo.objects.countries || Object.values(countryTopo.objects)[0];
-  lines = lines.concat(mesh(countryTopo, borderObj, (a,b)=>a!==b).coordinates || []);
-
-  globe.pathsData(lines);
-  globe.pathPoints(d => d);
-  globe.pathPointLat(p => p[1]);
-  globe.pathPointLng(p => p[0]);
-  globe.pathColor(() => LINE_COLOR);
-  globe.pathStroke(LINE_WIDTH);
-
-  // =========================
-  // HOVER (Raycaster)
-  // =========================
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2();
-
-  root.addEventListener("mousemove", ev => {
-    const rect = root.getBoundingClientRect();
-    const x = ev.clientX - rect.left;
-    const y = ev.clientY - rect.top;
-
-    mouse.x = (x / rect.width) * 2 - 1;
-    mouse.y = -(y / rect.height) * 2 + 1;
-
-    raycaster.setFromCamera(mouse, globe.camera());
-    const hits = raycaster.intersectObjects(countryMeshes, true);
-
-    let picked = null;
-    for (const h of hits) {
-      const ud = h.object.userData || {};
-      const feat = ud.__data || ud.data || ud.feature || null;
-      const props = feat?.properties;
-      if (props && (props.ISO_A3 || props.ADMIN || props.NAME)) {
-        picked = props;
-        break;
-      }
-    }
-
-    if (!picked) {
-      hideTip();
-      return;
-    }
-
-    const iso  = (picked.ISO_A3 ?? "").trim().toUpperCase();
-    const name = (picked.ADMIN || picked.NAME || iso || "Country").trim();
-
-    // same active logic as fill
-    const isActive =
-      (iso && iso !== "-99" && activeIso.has(iso)) ||
-      (name && activeNames.has(name));
-
-    if (HOVER_ONLY_ACTIVE && !isActive) {
-      hideTip();
-      return;
-    }
-
-    showTip(name, x, y);
-  });
-
-  root.addEventListener("mouseleave", hideTip);
+} else {
+  globe.polygonsData([]);
 }
+
+// =========================
+// COAST + BORDERS (paths)
+// =========================
+let lines = [];
+const coastObj = landTopo.objects.land || Object.values(landTopo.objects)[0];
+lines = lines.concat(mesh(landTopo, coastObj).coordinates || []);
+
+const borderObj = countriesTopo.objects.countries || Object.values(countriesTopo.objects)[0];
+lines = lines.concat(mesh(countriesTopo, borderObj, (a,b)=>a!==b).coordinates || []);
+
+globe.pathsData(lines)
+  .pathPoints(d => d)
+  .pathPointLat(p => p[1])
+  .pathPointLng(p => p[0])
+  .pathColor(() => LINE_COLOR)
+  .pathStroke(LINE_WIDTH);
 
 </script>
 </body>
