@@ -104,7 +104,7 @@ const ACTIVE_COLOR  = "rgba(20,20,20,0.22)";
 const LINE_COLOR    = "rgba(0,0,0,1)";
 const LINE_WIDTH    = 1;
 
-const CUSTOMER_POINT_ALT = 0.03;
+const CUSTOMER_POINT_ALT = 0.0001;
 const CUSTOMER_POINT_RADIUS = 0.55;
 
 const RING_ALT = 0.025;
@@ -182,6 +182,26 @@ window.addEventListener("keydown", e => {
 });
 window.addEventListener("keyup", e => {
   if (!isTouch && e.key === "Control") controls.enableZoom = false;
+});
+  
+let __paused = false;
+
+function setPaused(paused) {
+  __paused = !!paused;
+  globe.controls().autoRotate = !__paused && globe.controls().autoRotate;
+  // stop/start arc dash animation by freezing time: easiest is to set animate time huge when paused
+  if (__paused) {
+    globe.arcDashAnimateTime(1e12);
+  } else {
+    globe.arcDashAnimateTime(3600); // <- deine normale Geschwindigkeit
+  }
+  // optional: reduce render work when paused
+  globe.renderer().setAnimationLoop(__paused ? null : undefined);
+}
+
+window.addEventListener("message", (ev) => {
+  const msg = ev.data || {};
+  if (msg.type === "GLOBE_PAUSE") setPaused(msg.paused);
 });
 
 // =========================
