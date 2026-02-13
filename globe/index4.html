@@ -219,6 +219,20 @@ const customersUSA = (SHOW_CUSTOMERS_USA ? await fetchJson("../data/pointsUSA.js
 
 const customers = [...customersGlobal, ...customersUSA];
 
+const btns = document.querySelectorAll("#controls button");
+
+btns.forEach(b => {
+  b.onclick = () => {
+    const mode = b.dataset.mode;
+
+    SHOW_CUSTOMERS_GLOBAL = mode === "global" || mode === "both";
+    SHOW_CUSTOMERS_USA    = mode === "usa" || mode === "both";
+
+    location.reload(); // simplest clean refresh
+  };
+});
+ 
+  
 const hubDE = customers.find(d => (d.iso3 ?? "").toUpperCase() === "DEU" || (d.name ?? "") === "Germany");
 const hubUS = customers.find(d => (d.iso3 ?? "").toUpperCase() === "USA" || (d.name ?? "") === "United States");
 
