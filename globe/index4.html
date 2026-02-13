@@ -170,13 +170,18 @@ globe.controls().autoRotateSpeed = 0.6;
 // =========================
 // LOAD DATA
 // =========================
-const customersGlobal = await fetchJson("../data/points.json");
-const customersUSA    = await fetchJson("../data/pointsUSA.json");
-const customers = [
-  ...(SHOW_CUSTOMERS_GLOBAL ? customersGlobal : []),
-  ...(SHOW_CUSTOMERS_USA ? customersUSA : [])
-];
+const customersGlobal = (SHOW_CUSTOMERS_GLOBAL ? await fetchJson("../data/points.json") : [])
+  .map(d => ({ ...d, group: "global" }));
 
+const customersUSA = (SHOW_CUSTOMERS_USA ? await fetchJson("../data/pointsUSA.json") : [])
+  .map(d => ({ ...d, group: "usa" }));
+
+const customers = [...customersGlobal, ...customersUSA];
+
+const hubDE = customers.find(d => (d.iso3 ?? "").toUpperCase() === "DEU" || (d.name ?? "") === "Germany");
+const hubUS = customers.find(d => (d.iso3 ?? "").toUpperCase() === "USA" || (d.name ?? "") === "United States");
+
+  
 const activeIso = new Set(customers.map(d => d.iso3).filter(Boolean));
 const activeNames = new Set(customers.map(d => d.name).filter(Boolean));
 
@@ -254,44 +259,42 @@ if (MAP_MODE === "grid") {
   // 3D CONNECTION ARCS (Germany -> customers)
   // =========================
   if (SHOW_ARCS) {
-    const germany = customers.find(d => d.iso3 === "DEU" || d.name === "Germany");
-
-    if (germany) {
-      const arcs = customers
-        .filter(d => d !== germany)
-        .map(d => ({
-          startLat: custLat(germany),
-          startLng: custLng(germany),
+    const arcs = customers
+      .filter(d => d.group === "global" ? hubDE && d !== hubDE : hubUS && d !== hubUS)
+      .map(d => {
+        const hub = (d.group === "usa") ? hubUS : hubDE;
+        return {
+          startLat: custLat(hub),
+          startLng: custLng(hub),
           endLat: custLat(d),
-          endLng: custLng(d)
-        }));
-
-      globe.arcsData(arcs);
-
-      globe.arcStartLat(d => d.startLat);
-      globe.arcStartLng(d => d.startLng);
-      globe.arcEndLat(d => d.endLat);
-      globe.arcEndLng(d => d.endLng);
-
-      globe.arcColor(() => ARC_COLOR);
-      globe.arcAltitude(d => {
-        // Distanz grob in Grad (reicht für Visual; robust + schnell)
-        const dist = Math.hypot(d.endLat - d.startLat, d.endLng - d.startLng);
-      
-        // Normalisieren: 0..1 (0 = sehr nah, 1 = sehr weit)
-        const t = Math.max(0, Math.min(1, dist / 140)); // 140 ~ "sehr weit"
-      
-        // nur Center anheben: kurze bleiben ~H_TARGET, lange gehen Richtung H_MAX
-        return H_TARGET + (H_MAX - H_TARGET) * Math.pow(t, P);
+          endLng: custLng(d),
+          group: d.group
+        };
       });
+    
+    globe.arcsData(arcs);
+    
+    globe.arcStartLat(d => d.startLat);
+    globe.arcStartLng(d => d.startLng);
+    globe.arcEndLat(d => d.endLat);
+    globe.arcEndLng(d => d.endLng);
+    
+    // optional: different colors per hub/group
+    globe.arcColor(d => d.group === "usa" ? "rgba(255,80,80,0.70)" : "rgba(80,130,255,0.75)");
+    
+    globe.arcAltitude(d => {
+      const dist = Math.hypot(d.endLat - d.startLat, d.endLng - d.startLng);
+      const t = Math.max(0, Math.min(1, dist / 140));
+      return H_TARGET + (H_MAX - H_TARGET) * Math.pow(t, P);
+    });
+    
+    globe.arcStroke(() => ARC_STROKE);
+    
+    // dashed + animated (moving gaps)
+    globe.arcDashLength(0.9);
+    globe.arcDashGap(0.05);
+    globe.arcDashAnimateTime(3600);
 
-      globe.arcStroke(() => ARC_STROKE);
-      
-      // dashed + animated
-      globe.arcDashLength(0.9);      // short dash segments
-      globe.arcDashGap(0.05);          // space between dashes
-      globe.arcDashAnimateTime(3600); // speed (lower = faster)      
-     
     } else {
       console.warn("Germany (DEU) not found in customers -> arcs disabled.");
       globe.arcsData([]);
